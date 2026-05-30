@@ -266,14 +266,10 @@ textarea:focus{border-color:#7c3aed;}textarea::placeholder{color:var(--text3);}
         <div class="pg-sub">Upload invoice and bill — AI detects every mismatch</div>
         <div class="card">
           <div class="card-head">
-            <div><div class="card-tag">AI Config</div><div class="card-title">Claude API Key</div></div>
-            <span id="apiBadge" style="font-size:0.76rem;color:var(--text3)">Not set</span>
+            <div><div class="card-tag">AI Config</div><div class="card-title">Gemini 2.0 Flash — Active</div></div>
+            <span style="font-size:0.76rem;color:var(--green)">✅ AI Ready</span>
           </div>
-          <div class="api-row">
-            <input type="password" class="api-inp" id="apiKey" placeholder="sk-ant-api03-..."/>
-            <button class="btn btn-navy" onclick="saveKey()">Save</button>
-          </div>
-          <div class="api-note no" id="apiNote">No API key — basic matching mode</div>
+          <div class="api-note ok" style="margin-top:0">✅ Gemini 2.0 Flash connected — AI matching active!</div>
         </div>
         <div class="card">
           <div class="card-head">
@@ -310,7 +306,7 @@ textarea:focus{border-color:#7c3aed;}textarea::placeholder{color:var(--text3);}
         <div class="act-bar">
           <button class="btn btn-outline" onclick="resetAll()">Reset</button>
           <div class="sp"></div>
-          <span class="mode-tag" id="modeLabel">Basic Mode</span>
+          <span class="mode-tag" id="modeLabel">🤖 Gemini 2.0 Flash</span>
           <button class="btn btn-grad" id="matchBtn" onclick="startMatch()">Run Match Analysis</button>
         </div>
         <div id="loading">
@@ -631,9 +627,8 @@ async function startMatch(){
     let ic=it,bc=bt,iImg=false,bImg=false,ib64=null,bb64=null,im=null,bm=null;
     if(invF.file){if(invF.type==='pdf'){document.getElementById('ldStep').textContent='Reading invoice PDF...';ic=await extractPDF(invF.file);}else{document.getElementById('ldStep').textContent='Processing invoice image...';iImg=true;ib64=await toB64(invF.file);im=invF.file.type||'image/jpeg';}}
     if(billF.file){if(billF.type==='pdf'){document.getElementById('ldStep').textContent='Reading bill PDF...';bc=await extractPDF(billF.file);}else{document.getElementById('ldStep').textContent='Processing bill image...';bImg=true;bb64=await toB64(billF.file);bm=billF.file.type||'image/jpeg';}}
-    const apiKey=localStorage.getItem('claude_key');
-    if(apiKey){document.getElementById('ldStep').textContent='Running AI analysis...';await aiMatch(ic,bc,iImg,ib64,im,bImg,bb64,bm,apiKey);}
-    else{document.getElementById('ldStep').textContent='Running basic match...';basicMatch(ic||'',bc||'');}
+    document.getElementById('ldStep').textContent='Running AI analysis...';
+    await geminiMatch(ic||'',bc||'',iImg,ib64,im,bImg,bb64,bm);
   }catch(e){toast('Error: '+e.message,'err');}
   finally{document.getElementById('loading').style.display='none';document.getElementById('matchBtn').disabled=false;}
 }
@@ -646,6 +641,31 @@ async function aiMatch(it,bt,iImg,ib64,im,bImg,bb64,bm,apiKey){
   const data=await resp.json();
   if(data.error)throw new Error(data.error.message);
   const parsed=JSON.parse(data.content.map(c=>c.text||'').join('').replace(/```json|```/g,'').trim());
+  renderResults(parsed.fields,parsed.summary,parsed.risk_level,true);
+}
+
+async function geminiMatch(it,bt,iImg,ib64,im,bImg,bb64,bm){
+  const GKEY='AIzaSyAQ.Ab8RN6IYZhHMtHUYjr9AW-_rzxVcaLrO7wv7s1THWEwZvhjALw';
+  const buildPart=(isImg,b64,mime,text,label)=>{
+    if(isImg)return [{inline_data:{mime_type:mime,data:b64}},{text:'This is the '+label+'.'}];
+    return [{text:label+':\n'+text}];
+  };
+  const prompt='Compare INVOICE and BILL documents. Return ONLY valid JSON, no markdown:\n{"fields":[{"field":"Name","invoice_value":"val or null","bill_value":"val or null","status":"match|mismatch|missing","note":"brief note"}],"summary":"2-3 sentence analysis","risk_level":"low|medium|high"}';
+  const parts=[
+    ...buildPart(iImg,ib64,im,it,'INVOICE'),
+    {text:'---'},
+    ...buildPart(bImg,bb64,bm,bt,'BILL'),
+    {text:prompt}
+  ];
+  const resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+GKEY,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({contents:[{parts}]})
+  });
+  const data=await resp.json();
+  if(!data.candidates||!data.candidates[0])throw new Error('Gemini API error');
+  const raw=data.candidates[0].content.parts[0].text;
+  const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
   renderResults(parsed.fields,parsed.summary,parsed.risk_level,true);
 }
 
